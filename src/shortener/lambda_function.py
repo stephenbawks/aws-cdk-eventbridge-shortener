@@ -11,7 +11,6 @@ from aws_lambda_powertools.metrics import MetricUnit
 # https://docs.aws.amazon.com/lambda/latest/dg/configuration-envvars.html#configuration-envvars-retrieve
 REGION = os.environ['AWS_REGION']
 ENVIRONMENT = os.environ['ENVIRONMENT']
-APP_ID = os.environ['APP_ID']
 BUCKET_NAME = os.environ['BUCKET_NAME']
 
 ###############################################################################

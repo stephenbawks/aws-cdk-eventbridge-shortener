@@ -9,16 +9,20 @@ from aws_cdk import (
     core
 )
 
+###############################################################################
+#                        Documentation for the AWS CDK                        #
+###############################################################################
 # https://docs.aws.amazon.com/cdk/api/latest/python/index.html
 
 
 class ShortenerStack(core.Stack):
 
-    def __init__(self, scope: core.Construct, construct_id: str, applicationName: str, env: str, jwt_audience: list, jwt_issuer: str, ** kwargs) -> None:
+    def __init__(self, scope: core.Construct, construct_id: str, applicationName: str, env: str, jwt_audience: list, jwt_issuer: str, http_default_stage: bool=False, ** kwargs) -> None:
         self.application_name = applicationName
         self.env = env
         self.jwt_audience = jwt_audience
         self.jwt_issuer = jwt_issuer
+        self.create_http_default_stage = http_default_stage
 
         super().__init__(scope, construct_id, **kwargs)
 
@@ -42,12 +46,16 @@ class ShortenerStack(core.Stack):
             handler="lambda_handler",
             code=lambda_.Code.asset("./src/shortener"),
             timeout=core.Duration.seconds(900),
-            runtime=lambda_.Runtime.PYTHON_3_9
+            runtime=lambda_.Runtime.PYTHON_3_9,
+            architecture
         )
+
+        Fn.add_environment("BUCKET_NAME", bucket.bucket_name)
+        Fn.add_environment("ENVIRONMENT", self.env)
 
         bucket.grant_read_write(Fn)
 
-        http_api = apigw.HttpApi(self, "httpApi")
+        http_api = apigw.HttpApi(self, "httpApi", create_default_stage=self.create_http_default_stage)
 
         http_id = http_api.api_id
 
@@ -62,7 +70,7 @@ class ShortenerStack(core.Stack):
             http_api=http_api,
             route_key=apigw.HttpRouteKey.with_(
                 method=apigw.HttpMethod.POST,
-                path="/dostuff"
+                path="/putevent"
             ),
             authorizer=apigw_authorizers.HttpJwtAuthorizer(
                 authorizer_name=f"{app_name}-authorizer",

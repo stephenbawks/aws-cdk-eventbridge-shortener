@@ -11,17 +11,18 @@ from aws_lambda_powertools.metrics import MetricUnit
 # https://docs.aws.amazon.com/lambda/latest/dg/configuration-envvars.html#configuration-envvars-retrieve
 REGION = os.environ['AWS_REGION']
 ENVIRONMENT = os.environ['ENVIRONMENT']
-BUCKET_NAME = os.environ['BUCKET_NAME']
+BUCKET_NAME = os.environ['SHORTENER_BUCKET_NAME']
+URL_EXP_TIME = os.environ['URL_EXP_TIME']
 
-###############################################################################
-#                     Documentation for the Lambda Function                   #
-###############################################################################
+#------------------------------------------------------------------------------
+#                     Documentation for the Lambda Function                   
+#------------------------------------------------------------------------------
+
 # Inside Lambda - What is inside AWS lambda? Are there things inside there? Let's find out!
 # https://insidelambda.com/
 
 # Create boto3 Events Client
 # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/events.html
-# events = boto3.client('events')
 
 # Lambda Defined/Reserverd runtime environment variables
 # https://docs.aws.amazon.com/lambda/latest/dg/configuration-envvars.html#configuration-envvars-runtime
@@ -35,7 +36,6 @@ BUCKET_NAME = os.environ['BUCKET_NAME']
 # Amazon EventBridge Events
 # https://docs.aws.amazon.com/eventbridge/latest/userguide/eb-events.html
 
-###############################################################################
 
 
 # Tracer and Logger are part of AWS Lambda Powertools Python
@@ -155,7 +155,7 @@ def add_event_metadata(event: dict, trucated_event: bool, presigned_url: str = N
 
 
 @tracer.capture_method(capture_response=False)
-def create_presigned_url(bucket_name: str, file_name: str, object_path: str, file_content: str, expiration: int = 3600) -> str:
+def create_presigned_url(bucket_name: str, file_name: str, object_path: str, file_content: str, expiration: int) -> str:
     """Generate a presigned URL to share an S3 object
     https://boto3.amazonaws.com/v1/documentation/api/latest/guide/s3-presigned-urls.html
 
@@ -230,7 +230,8 @@ def lambda_handler(event, context):
 
         # Generating a presigned URL for the file that will contained the truncated event data
         presigned_url = create_presigned_url(bucket_name=BUCKET_NAME, file_name=generate_file_name,
-                                             object_path=file_object_path, file_content=str(truncated_event_data))
+                                             object_path=file_object_path, file_content=str(truncated_event_data),
+                                             expiration=URL_EXP_TIME)
 
         # Add truncated metadata to the event and remove the data field
         event_with_metadata = add_event_metadata(event_data, trucated_event=True, presigned_url=presigned_url,

@@ -17,12 +17,22 @@ from aws_cdk import (
 
 class ShortenerStack(core.Stack):
 
-    def __init__(self, scope: core.Construct, construct_id: str, applicationName: str, env: str, jwt_audience: list, jwt_issuer: str, http_default_stage: bool=False, ** kwargs) -> None:
+    def __init__(
+        self, scope: core.Construct, construct_id: str, applicationName: str, env: str, 
+        jwt_audience: list, jwt_issuer: str, http_default_stage: bool=False, 
+        add_stage_name_to_endpoint: bool=False, stage_name: str=None,
+        presigned_url_expiration_time_seconds: int=3600,
+        ** kwargs
+    ) -> None:
+
         self.application_name = applicationName
         self.env = env
         self.jwt_audience = jwt_audience
         self.jwt_issuer = jwt_issuer
         self.create_http_default_stage = http_default_stage
+        self.add_stage_name_to_endpoint = add_stage_name_to_endpoint
+        self.stage_name = stage_name
+        self.url_exp_time = presigned_url_expiration_time_seconds
 
         super().__init__(scope, construct_id, **kwargs)
 
@@ -46,12 +56,13 @@ class ShortenerStack(core.Stack):
             handler="lambda_handler",
             code=lambda_.Code.asset("./src/shortener"),
             timeout=core.Duration.seconds(900),
-            runtime=lambda_.Runtime.PYTHON_3_9,
-            architecture
+            runtime=lambda_.Runtime.PYTHON_3_9
         )
 
-        Fn.add_environment("BUCKET_NAME", bucket.bucket_name)
+        Fn.add_environment("SHORTENER_BUCKET_NAME", bucket.bucket_name)
         Fn.add_environment("ENVIRONMENT", self.env)
+        Fn.add_environment("URL_EXP_TIME", self.url_exp_time)
+        
 
         bucket.grant_read_write(Fn)
 
@@ -59,11 +70,12 @@ class ShortenerStack(core.Stack):
 
         http_id = http_api.api_id
 
-        http_api.add_stage(
-            "v1",
-            auto_deploy=True,
-            stage_name="v1"
-        )
+        if self.add_stage_name_to_endpoint and self.stage_name is not None:
+            http_api.add_stage(
+                "addStage",
+                auto_deploy=True,
+                stage_name=self.stage_name
+            )
 
         apigw.HttpRoute(
             self, "httpRoute",

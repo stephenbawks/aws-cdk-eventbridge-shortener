@@ -1,0 +1,7 @@
+README.md
+setup.py
+eventbridge_shortener/eventbridge_shortener.egg-info/PKG-INFO
+eventbridge_shortener/eventbridge_shortener.egg-info/SOURCES.txt
+eventbridge_shortener/eventbridge_shortener.egg-info/dependency_links.txt
+eventbridge_shortener/eventbridge_shortener.egg-info/requires.txt
+eventbridge_shortener/eventbridge_shortener.egg-info/top_level.txt

@@ -1,27 +1,29 @@
+import json
 from aws_cdk import (
     aws_s3 as s3,
     aws_events as events,
     aws_lambda as lambda_,
     aws_iam as iam,
     aws_apigatewayv2 as apigw,
+    aws_logs as logs,
+    aws_certificatemanager as acm,
     aws_apigatewayv2_integrations as apigw_integrations,
     aws_apigatewayv2_authorizers as apigw_authorizers,
     core
 )
 
-###############################################################################
+#------------------------------------------------------------------------------
 #                        Documentation for the AWS CDK                        #
-###############################################################################
+#------------------------------------------------------------------------------
 # https://docs.aws.amazon.com/cdk/api/latest/python/index.html
 
 
 class ShortenerStack(core.Stack):
 
     def __init__(
-        self, scope: core.Construct, construct_id: str, applicationName: str, env: str, 
-        jwt_audience: list, jwt_issuer: str, http_default_stage: bool=False, 
-        add_stage_name_to_endpoint: bool=False, stage_name: str=None,
-        presigned_url_expiration_time_seconds: int=3600,
+        self, scope: core.Construct, construct_id: str, applicationName: str, env: str,
+        jwt_audience: list, jwt_issuer: str, http_default_stage: bool=False,
+        domainName: str=None, add_stage_name_to_endpoint=False, stage_name=None,
         ** kwargs
     ) -> None:
 
@@ -32,7 +34,7 @@ class ShortenerStack(core.Stack):
         self.create_http_default_stage = http_default_stage
         self.add_stage_name_to_endpoint = add_stage_name_to_endpoint
         self.stage_name = stage_name
-        self.url_exp_time = presigned_url_expiration_time_seconds
+        self.domain_name = domainName
 
         super().__init__(scope, construct_id, **kwargs)
 
@@ -49,7 +51,8 @@ class ShortenerStack(core.Stack):
         bucket = s3.Bucket(
             self, "s3Bucket",
             versioned=True,
-            removal_policy=core.RemovalPolicy.DESTROY)
+            removal_policy=core.RemovalPolicy.DESTROY
+        )
 
         Fn = lambda_.Function(
             self, "shortenerLambda",
@@ -61,12 +64,64 @@ class ShortenerStack(core.Stack):
 
         Fn.add_environment("SHORTENER_BUCKET_NAME", bucket.bucket_name)
         Fn.add_environment("ENVIRONMENT", self.env)
-        Fn.add_environment("URL_EXP_TIME", self.url_exp_time)
-        
 
         bucket.grant_read_write(Fn)
 
-        http_api = apigw.HttpApi(self, "httpApi", create_default_stage=self.create_http_default_stage)
+        if self.domain_name is not None:
+            cert = acm.Certificate(
+                self, "certificate",
+                domain_name=self.domain_name,
+                subject_alternative_names=[f"*.{self.domain_name}"],
+                validation=acm.CertificateValidation.from_dns()
+            )
+
+        dn = apigw.DomainName(self, "domainName",
+            domain_name=self.domain_name,
+            certificate=acm.Certificate.from_certificate_arn(self, "cert", cert.certificate_arn)
+        )
+
+        http_api = apigw.HttpApi(self, "httpApi",
+            api_name=f"{app_name}-api",
+            create_default_stage=self.create_http_default_stage
+        )
+
+        apigw.ApiMapping(self, "apiMapping",
+            domain_name=dn,
+            api=http_api
+        )
+
+        httpLogGroup = logs.LogGroup(
+            self, "httpLogs",
+            # https://docs.aws.amazon.com/cdk/api/latest/python/aws_cdk.aws_logs/RetentionDays.html#aws_cdk.aws_logs.RetentionDays
+            retention=logs.RetentionDays.TWO_WEEKS,
+            log_group_name=f"/aws/http/{app_name}-api"
+        )
+
+        # log_settings = apigw.CfnStage.AccessLogSettingsProperty(
+        #     destination_arn=httpLogGroup.log_group_arn,
+        #     format="requestId:$context.requestId,ip:$context.identity.sourceIp,requestTime:$context.requestTime,httpMethod:$context.httpMethod,routeKey:$context.routeKey,status:$context.status,protocol:$context.protocol,responseLength:$context.responseLength,integrationRequestId:$context.integration.requestId,integrationStatus:$context.integration.integrationStatus,integrationLatency:$context.integrationLatency,integrationErrorMessage:$context.integrationErrorMessage,errorMessageString:$context.error.message,authorizerError:$context.authorizer.error"
+        # )
+
+        # apigw.CfnStageProps(
+        #     api_id=http_api.http_api_id,
+        #     auto_deploy=True,
+        #     stage_name=http_api.default_stage.stage_name,
+        #     access_log_settings=([log_settings])
+        # )
+
+
+
+        # domain_name = apigw.CfnDomainName(
+        #     self, "domainName",
+        #     domain_name=api_domain_name,
+        #     domain_name_configurations=[
+        #         apigw.CfnDomainName.DomainNameConfigurationProperty(
+        #             certificate_arn=certificate_arn,
+        #             endpoint_type="REGIONAL",
+        #             security_policy="TLS_1_2"
+        #         )
+        #     ]
+        # )
 
         http_id = http_api.api_id
 
@@ -117,6 +172,16 @@ class ShortenerStack(core.Stack):
         self.http_url_output = core.CfnOutput(
             self, "shortener-api-id",
             value=http_api.api_id
+        )
+
+        self.http_url_output = core.CfnOutput(
+            self, "shortener-api-default-stage",
+            value=http_api.default_stage.stage_name
+        )
+
+        self.http_url_output = core.CfnOutput(
+            self, "shortener-api-log-arn",
+            value=httpLogGroup.log_group_arn
         )
 
         self.lambda_arn_output = core.CfnOutput(

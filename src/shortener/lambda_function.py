@@ -12,10 +12,9 @@ from aws_lambda_powertools.metrics import MetricUnit
 REGION = os.environ['AWS_REGION']
 ENVIRONMENT = os.environ['ENVIRONMENT']
 BUCKET_NAME = os.environ['SHORTENER_BUCKET_NAME']
-URL_EXP_TIME = os.environ['URL_EXP_TIME']
 
 #------------------------------------------------------------------------------
-#                     Documentation for the Lambda Function                   
+#                     Documentation for the Lambda Function
 #------------------------------------------------------------------------------
 
 # Inside Lambda - What is inside AWS lambda? Are there things inside there? Let's find out!
@@ -190,6 +189,8 @@ def create_presigned_url(bucket_name: str, file_name: str, object_path: str, fil
             Params={"Bucket": bucket_name, "Key": object_path}
         )
 
+        logger.info("Presigned URL: " + response)
+
         tracer.put_annotation(key="CreatePreSignedUrl", value="SUCCESS")
         tracer.put_metadata(key="object_path", value=object_path)
 
@@ -212,6 +213,14 @@ def lambda_handler(event, context):
         response = {"statusCode": 400, "message": "Invalid JSON in body"}
         return json.dumps(response)
 
+    if event['queryStringParameters']['presigned_url_expiration']:
+        url_expiration = int(event['queryStringParameters']['presigned_url_expiration'])
+        logger.info("Presigned URL expiration set to: {}".format(url_expiration))
+    else:
+        url_expiration = 3600
+        logger.info("Presigned URL expiration set to: {}".format(url_expiration))
+
+
     # Getting size of the event in bytes and check if it is over the limit
     # initial_event_size = get_eventbridge_put_event_size(event_data)
     # 256000 - 50 for minimum metadata size (technically 47 but rounding up for safety)
@@ -231,7 +240,7 @@ def lambda_handler(event, context):
         # Generating a presigned URL for the file that will contained the truncated event data
         presigned_url = create_presigned_url(bucket_name=BUCKET_NAME, file_name=generate_file_name,
                                              object_path=file_object_path, file_content=str(truncated_event_data),
-                                             expiration=URL_EXP_TIME)
+                                             expiration=url_expiration)
 
         # Add truncated metadata to the event and remove the data field
         event_with_metadata = add_event_metadata(event_data, trucated_event=True, presigned_url=presigned_url,
@@ -246,10 +255,10 @@ def lambda_handler(event, context):
         response = {"statusCode": 200,
                     "headers": {"Content-Type": "application/json"},
                     "event": {
-                        "event_trucated": True,
-                        "presigned_url": presigned_url,
-                        "event_size": final_event_size
-                    }
+                            "event_trucated": True,
+                            "presigned_url": presigned_url,
+                            "event_size": final_event_size
+                        }
                     }
         return json.dumps(response)
     else:
@@ -267,8 +276,8 @@ def lambda_handler(event, context):
         response = {"statusCode": 200,
                     "headers": {"Content-Type": "application/json"},
                     "event": {
-                        "event_trucated": False,
-                        "event_size": final_event_size
-                    }
+                            "event_trucated": False,
+                            "event_size": final_event_size
+                        }
                     }
         return json.dumps(response)

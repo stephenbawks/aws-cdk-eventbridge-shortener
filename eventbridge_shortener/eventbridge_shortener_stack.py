@@ -56,14 +56,23 @@ class ShortenerStack(core.Stack):
 
         Fn = lambda_.Function(
             self, "shortenerLambda",
-            handler="lambda_handler",
+            handler="lambda_function.lambda_handler",
             code=lambda_.Code.asset("./src/shortener"),
             timeout=core.Duration.seconds(900),
-            runtime=lambda_.Runtime.PYTHON_3_9
+            runtime=lambda_.Runtime.PYTHON_3_9,
+            tracing=lambda_.Tracing.ACTIVE,
+            layers=[
+                lambda_.LayerVersion.from_layer_version_arn(
+                    self, "awsPowerToolsLambdaLayer",
+                    f"arn:aws:lambda:{region}:017000801446:layer:AWSLambdaPowertoolsPython:3"
+                )
+            ]
         )
 
         Fn.add_environment("SHORTENER_BUCKET_NAME", bucket.bucket_name)
         Fn.add_environment("ENVIRONMENT", self.env)
+        Fn.add_environment("POWERTOOLS_METRICS_NAMESPACE", "Shortener")
+        Fn.add_environment("POWERTOOLS_SERVICE_NAME", "event-service")
 
         bucket.grant_read_write(Fn)
 
@@ -97,33 +106,17 @@ class ShortenerStack(core.Stack):
             log_group_name=f"/aws/http/{app_name}-api"
         )
 
-        # log_settings = apigw.CfnStage.AccessLogSettingsProperty(
-        #     destination_arn=httpLogGroup.log_group_arn,
-        #     format="requestId:$context.requestId,ip:$context.identity.sourceIp,requestTime:$context.requestTime,httpMethod:$context.httpMethod,routeKey:$context.routeKey,status:$context.status,protocol:$context.protocol,responseLength:$context.responseLength,integrationRequestId:$context.integration.requestId,integrationStatus:$context.integration.integrationStatus,integrationLatency:$context.integrationLatency,integrationErrorMessage:$context.integrationErrorMessage,errorMessageString:$context.error.message,authorizerError:$context.authorizer.error"
-        # )
+        log_settings = apigw.CfnStage.AccessLogSettingsProperty(
+            destination_arn=httpLogGroup.log_group_arn,
+            format="requestId:$context.requestId,ip:$context.identity.sourceIp,requestTime:$context.requestTime,httpMethod:$context.httpMethod,routeKey:$context.routeKey,status:$context.status,protocol:$context.protocol,responseLength:$context.responseLength,integrationRequestId:$context.integration.requestId,integrationStatus:$context.integration.integrationStatus,integrationLatency:$context.integrationLatency,integrationErrorMessage:$context.integrationErrorMessage,errorMessageString:$context.error.message,authorizerError:$context.authorizer.error"
+        )
 
-        # apigw.CfnStageProps(
-        #     api_id=http_api.http_api_id,
-        #     auto_deploy=True,
-        #     stage_name=http_api.default_stage.stage_name,
-        #     access_log_settings=([log_settings])
-        # )
-
-
-
-        # domain_name = apigw.CfnDomainName(
-        #     self, "domainName",
-        #     domain_name=api_domain_name,
-        #     domain_name_configurations=[
-        #         apigw.CfnDomainName.DomainNameConfigurationProperty(
-        #             certificate_arn=certificate_arn,
-        #             endpoint_type="REGIONAL",
-        #             security_policy="TLS_1_2"
-        #         )
-        #     ]
-        # )
-
-        http_id = http_api.api_id
+        apigw.CfnStageProps(
+            api_id=http_api.http_api_id,
+            auto_deploy=True,
+            stage_name=http_api.default_stage,
+            access_log_settings=(log_settings)
+        )
 
         if self.add_stage_name_to_endpoint and self.stage_name is not None:
             http_api.add_stage(
@@ -153,8 +146,23 @@ class ShortenerStack(core.Stack):
         lambda_.Permission(
             principal=[iam.ServicePrincipal("apigateway.amazonaws.com")],
             action="lambda:InvokeFunction",
-            source_arn=f"arn:aws:execute-api:{region}:{account_id}:{http_id}/*/*/{Fn.function_name}"
+            source_arn=f"arn:aws:execute-api:{region}:{account_id}:{http_api.api_id}/*/*/{Fn.function_name}"
         )
+
+        iam.Policy(
+            self, "policy",
+            roles=[Fn.role],
+            policy_name=f"policy-{app_name}-put-events",
+            statements=[
+                iam.PolicyStatement(
+                    sid="AllowPutEvents",
+                    actions=["events:PutEvents"],
+                    effect=iam.Effect.ALLOW,
+                    resources=[bridge.event_bus_arn]
+                )
+            ]
+        )
+
 
         # -------------------------------------------------------------------------------
         # Outputs

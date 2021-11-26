@@ -12,10 +12,11 @@ from aws_lambda_powertools.metrics import MetricUnit
 REGION = os.environ['AWS_REGION']
 ENVIRONMENT = os.environ['ENVIRONMENT']
 BUCKET_NAME = os.environ['SHORTENER_BUCKET_NAME']
+BUS_NAME = os.environ['EVENTBRIDGE_BUS_NAME']
 
-#------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
 #                     Documentation for the Lambda Function
-#------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
 
 # Inside Lambda - What is inside AWS lambda? Are there things inside there? Let's find out!
 # https://insidelambda.com/
@@ -34,7 +35,6 @@ BUCKET_NAME = os.environ['SHORTENER_BUCKET_NAME']
 
 # Amazon EventBridge Events
 # https://docs.aws.amazon.com/eventbridge/latest/userguide/eb-events.html
-
 
 
 # Tracer and Logger are part of AWS Lambda Powertools Python
@@ -202,6 +202,27 @@ def create_presigned_url(bucket_name: str, file_name: str, object_path: str, fil
     return response
 
 
+def send_event_to_eventbridge(event: dict) -> None:
+    """Send event to EventBridge
+
+    Args:
+        event (dict): Event to send to EventBridge
+
+    Returns:
+        None
+    """
+    eventbridge = boto3.client('events')
+
+    logger.info("Sending event to EventBridge")
+
+    # Add Eventbridge Bus Name to the event
+    add_bus_name = event["detail"]["EventBusName"] = BUS_NAME
+    event["detail"]["metadata"].update(add_bus_name)
+
+    eventbridge.put_events(Entries=[event])
+    return None
+
+
 @metrics.log_metrics(capture_cold_start_metric=True)
 @logger.inject_lambda_context(log_event=False)
 @tracer.capture_method(capture_response=False)
@@ -214,12 +235,14 @@ def lambda_handler(event, context):
         return json.dumps(response)
 
     if event['queryStringParameters']['presigned_url_expiration']:
-        url_expiration = int(event['queryStringParameters']['presigned_url_expiration'])
-        logger.info("Presigned URL expiration set to: {}".format(url_expiration))
+        url_expiration = int(
+            event['queryStringParameters']['presigned_url_expiration'])
+        logger.info(
+            "Presigned URL expiration set to: {}".format(url_expiration))
     else:
         url_expiration = 3600
-        logger.info("Presigned URL expiration set to: {}".format(url_expiration))
-
+        logger.info(
+            "Presigned URL expiration set to: {}".format(url_expiration))
 
     # Getting size of the event in bytes and check if it is over the limit
     # initial_event_size = get_eventbridge_put_event_size(event_data)
@@ -239,7 +262,8 @@ def lambda_handler(event, context):
 
         # Generating a presigned URL for the file that will contained the truncated event data
         presigned_url = create_presigned_url(bucket_name=BUCKET_NAME, file_name=generate_file_name,
-                                             object_path=file_object_path, file_content=str(truncated_event_data),
+                                             object_path=file_object_path, file_content=str(
+                                                 truncated_event_data),
                                              expiration=url_expiration)
 
         # Add truncated metadata to the event and remove the data field
@@ -249,16 +273,19 @@ def lambda_handler(event, context):
         # Calculating the size of the event after adding metadata
         final_event_size = get_eventbridge_put_event_size(event_with_metadata)
 
+        # Send the event to EventBridge
+        send_event_to_eventbridge(event=event_with_metadata)
+
         put_event_size_metrics(event_size=final_event_size, event_type=event_data.get(
             "detail-type"), put_event_id=context.aws_request_id)
 
         response = {"statusCode": 200,
                     "headers": {"Content-Type": "application/json"},
                     "event": {
-                            "event_trucated": True,
-                            "presigned_url": presigned_url,
-                            "event_size": final_event_size
-                        }
+                        "event_trucated": True,
+                        "presigned_url": presigned_url,
+                        "event_size": final_event_size
+                    }
                     }
         return json.dumps(response)
     else:
@@ -276,8 +303,8 @@ def lambda_handler(event, context):
         response = {"statusCode": 200,
                     "headers": {"Content-Type": "application/json"},
                     "event": {
-                            "event_trucated": False,
-                            "event_size": final_event_size
-                        }
+                        "event_trucated": False,
+                        "event_size": final_event_size
+                    }
                     }
         return json.dumps(response)

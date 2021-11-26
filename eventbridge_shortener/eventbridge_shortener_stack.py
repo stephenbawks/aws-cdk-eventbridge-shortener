@@ -12,9 +12,9 @@ from aws_cdk import (
     core
 )
 
-#------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
 #                        Documentation for the AWS CDK                        #
-#------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
 # https://docs.aws.amazon.com/cdk/api/latest/python/index.html
 
 
@@ -22,8 +22,8 @@ class ShortenerStack(core.Stack):
 
     def __init__(
         self, scope: core.Construct, construct_id: str, applicationName: str, env: str,
-        jwt_audience: list, jwt_issuer: str, http_default_stage: bool=False,
-        domainName: str=None, add_stage_name_to_endpoint=False, stage_name=None,
+        jwt_audience: list, jwt_issuer: str, http_default_stage: bool = False,
+        domainName: str = None, add_stage_name_to_endpoint=False, stage_name=None,
         ** kwargs
     ) -> None:
 
@@ -73,6 +73,7 @@ class ShortenerStack(core.Stack):
         Fn.add_environment("ENVIRONMENT", self.env)
         Fn.add_environment("POWERTOOLS_METRICS_NAMESPACE", "Shortener")
         Fn.add_environment("POWERTOOLS_SERVICE_NAME", "event-service")
+        Fn.add_environment("EVENTBRIDGE_BUS_NAME", bridge.event_bus_name)
 
         bucket.grant_read_write(Fn)
 
@@ -85,19 +86,20 @@ class ShortenerStack(core.Stack):
             )
 
         dn = apigw.DomainName(self, "domainName",
-            domain_name=self.domain_name,
-            certificate=acm.Certificate.from_certificate_arn(self, "cert", cert.certificate_arn)
-        )
+                              domain_name=self.domain_name,
+                              certificate=acm.Certificate.from_certificate_arn(
+                                  self, "cert", cert.certificate_arn)
+                              )
 
         http_api = apigw.HttpApi(self, "httpApi",
-            api_name=f"{app_name}-api",
-            create_default_stage=self.create_http_default_stage
-        )
+                                 api_name=f"{app_name}-api",
+                                 create_default_stage=self.create_http_default_stage
+                                 )
 
         apigw.ApiMapping(self, "apiMapping",
-            domain_name=dn,
-            api=http_api
-        )
+                         domain_name=dn,
+                         api=http_api
+                         )
 
         httpLogGroup = logs.LogGroup(
             self, "httpLogs",
@@ -162,7 +164,6 @@ class ShortenerStack(core.Stack):
                 )
             ]
         )
-
 
         # -------------------------------------------------------------------------------
         # Outputs
